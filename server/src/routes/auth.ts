@@ -34,13 +34,13 @@ authRouter.post('/login', async (req: Request, res: Response) => {
     return res.status(401).json({ error: { message: 'Invalid email or password' } });
   }
 
-  const token = jwt.sign({ authenticated: true }, sessionSecret, { expiresIn: '7d' });
+  const token = jwt.sign({ authenticated: true }, sessionSecret, { expiresIn: '30d' });
 
   res.cookie('dashboard_session', token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
   });
 
   res.json({ authenticated: true });
