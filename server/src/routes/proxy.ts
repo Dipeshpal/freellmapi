@@ -83,9 +83,9 @@ function setStickyModel(messages: ChatMessage[], modelDbId: number) {
 }
 
 // OpenAI-compatible /models endpoint (used by Hermes for metadata)
-proxyRouter.get('/models', (_req: Request, res: Response) => {
+proxyRouter.get('/models', async (_req: Request, res: Response) => {
   const db = getDb();
-  const models = db.prepare('SELECT platform, model_id, display_name, context_window FROM models WHERE enabled = 1 ORDER BY intelligence_rank').all() as any[];
+  const models = await db.all<any>('SELECT platform, model_id, display_name, context_window FROM models WHERE enabled = 1 ORDER BY intelligence_rank');
   res.json({
     object: 'list',
     data: [
@@ -229,7 +229,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   // loopback callers. Browser pages can reach localhost, so socket locality is
   // not a reliable authorization boundary.
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-  const unifiedKey = getUnifiedApiKey();
+  const unifiedKey = await getUnifiedApiKey();
   if (!token || !timingSafeStringEqual(token, unifiedKey)) {
     res.status(401).json({
       error: { message: 'Invalid API key', type: 'authentication_error' },
@@ -303,11 +303,11 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     preferredModel = getStickyModel(messages);
   } else if (requestedModel) {
     const db = getDb();
-    const enabled = db.prepare('SELECT id FROM models WHERE model_id = ? AND enabled = 1').get(requestedModel) as { id: number } | undefined;
+    const enabled = await db.get<{ id: number }>('SELECT id FROM models WHERE model_id = ? AND enabled = 1', [requestedModel]);
     if (enabled) {
       preferredModel = enabled.id;
     } else {
-      const disabled = db.prepare('SELECT id FROM models WHERE model_id = ?').get(requestedModel) as { id: number } | undefined;
+      const disabled = await db.get<{ id: number }>('SELECT id FROM models WHERE model_id = ?', [requestedModel]);
       const reason = disabled ? 'is disabled' : 'is not in the catalog';
       res.status(400).json({
         error: {
@@ -329,7 +329,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
     try {
-      route = routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel);
+      route = await routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel);
     } catch (err: any) {
       // No more models available
       if (lastError) {
@@ -387,7 +387,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           recordTokens(route.platform, route.modelId, route.keyId, estimatedInputTokens + totalOutputTokens);
           recordSuccess(route.modelDbId);
           setStickyModel(messages, route.modelDbId);
-          logRequest(route.platform, route.modelId, 'success', estimatedInputTokens, totalOutputTokens, Date.now() - start, null);
+          await logRequest(route.platform, route.modelId, 'success', estimatedInputTokens, totalOutputTokens, Date.now() - start, null);
           return;
         } catch (streamErr: any) {
           if (streamStarted) {
@@ -399,7 +399,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             const payload = { error: { message: `Provider error (${route.displayName}): stream interrupted`, type: 'stream_error' } };
             try { res.write(`data: ${JSON.stringify(payload)}\n\n`); } catch { /* socket gone */ }
             try { res.write('data: [DONE]\n\n'); res.end(); } catch { /* socket gone */ }
-            logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, streamErr.message);
+            await logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, streamErr.message);
             return;
           }
           // Pre-stream error — bubble to outer retry/502 handler.
@@ -420,7 +420,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         if (attempt > 0) res.setHeader('X-Fallback-Attempts', String(attempt));
         res.json(result);
 
-        logRequest(
+        await logRequest(
           route.platform, route.modelId, 'success',
           result.usage?.prompt_tokens ?? 0,
           result.usage?.completion_tokens ?? 0,
@@ -430,7 +430,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       }
     } catch (err: any) {
       const latency = Date.now() - start;
-      logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, latency, err.message);
+      await logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, latency, err.message);
 
       if (isRetryableError(err)) {
         // Put this model+key on cooldown and try the next one
@@ -463,7 +463,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   });
 });
 
-function logRequest(
+async function logRequest(
   platform: string,
   modelId: string,
   status: string,
@@ -474,10 +474,10 @@ function logRequest(
 ) {
   try {
     const db = getDb();
-    db.prepare(`
+    await db.run(`
       INSERT INTO requests (platform, model_id, status, input_tokens, output_tokens, latency_ms, error)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(platform, modelId, status, inputTokens, outputTokens, latencyMs, error);
+    `, [platform, modelId, status, inputTokens, outputTokens, latencyMs, error]);
   } catch (e) {
     console.error('Failed to log request:', e);
   }

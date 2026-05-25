@@ -20,12 +20,12 @@ function getSinceTimestamp(range: string): string {
 }
 
 // Summary stats
-analyticsRouter.get('/summary', (req: Request, res: Response) => {
+analyticsRouter.get('/summary', async (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
 
-  const stats = db.prepare(`
+  const stats = await db.get<any>(`
     SELECT
       COUNT(*) as total_requests,
       SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
@@ -34,7 +34,7 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
       AVG(latency_ms) as avg_latency_ms
     FROM requests
     WHERE created_at >= ?
-  `).get(since) as any;
+  `, [since]);
 
   const totalRequests = stats.total_requests ?? 0;
   const successRate = totalRequests > 0 ? (stats.success_count / totalRequests) * 100 : 0;
@@ -55,12 +55,12 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
 });
 
 // Stats grouped by model
-analyticsRouter.get('/by-model', (req: Request, res: Response) => {
+analyticsRouter.get('/by-model', async (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
 
-  const rows = db.prepare(`
+  const rows = await db.all<any>(`
     SELECT
       r.platform,
       r.model_id,
@@ -75,7 +75,7 @@ analyticsRouter.get('/by-model', (req: Request, res: Response) => {
     WHERE r.created_at >= ?
     GROUP BY r.platform, r.model_id
     ORDER BY requests DESC
-  `).all(since) as any[];
+  `, [since]) as any[];
 
   res.json(rows.map(r => ({
     platform: r.platform,
@@ -90,12 +90,12 @@ analyticsRouter.get('/by-model', (req: Request, res: Response) => {
 });
 
 // Stats grouped by platform
-analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
+analyticsRouter.get('/by-platform', async (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
 
-  const rows = db.prepare(`
+  const rows = await db.all<any>(`
     SELECT
       platform,
       COUNT(*) as requests,
@@ -107,7 +107,7 @@ analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
     WHERE created_at >= ?
     GROUP BY platform
     ORDER BY requests DESC
-  `).all(since) as any[];
+  `, [since]) as any[];
 
   res.json(rows.map(r => ({
     platform: r.platform,
@@ -120,26 +120,42 @@ analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
 });
 
 // Timeline data
-analyticsRouter.get('/timeline', (req: Request, res: Response) => {
+analyticsRouter.get('/timeline', async (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const interval = (req.query.interval as string) ?? (range === '24h' ? 'hour' : 'day');
   const since = getSinceTimestamp(range);
   const db = getDb();
 
-  // dateFormat is a hardcoded whitelist — never user-controlled.
-  const dateFormat = interval === 'hour' ? '%Y-%m-%dT%H:00:00' : '%Y-%m-%d';
+  let sql: string;
+  if (db.dialect === 'postgres') {
+    const pgFormat = interval === 'hour' ? 'YYYY-MM-DD"T"HH24:00:00' : 'YYYY-MM-DD';
+    sql = `
+      SELECT
+        to_char(created_at, '${pgFormat}') as timestamp,
+        COUNT(*) as requests,
+        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
+        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as failure_count
+      FROM requests
+      WHERE created_at >= ?
+      GROUP BY to_char(created_at, '${pgFormat}')
+      ORDER BY timestamp ASC
+    `;
+  } else {
+    const dateFormat = interval === 'hour' ? '%Y-%m-%dT%H:00:00' : '%Y-%m-%d';
+    sql = `
+      SELECT
+        strftime('${dateFormat}', created_at) as timestamp,
+        COUNT(*) as requests,
+        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
+        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as failure_count
+      FROM requests
+      WHERE created_at >= ?
+      GROUP BY strftime('${dateFormat}', created_at)
+      ORDER BY timestamp ASC
+    `;
+  }
 
-  const rows = db.prepare(`
-    SELECT
-      strftime('${dateFormat}', created_at) as timestamp,
-      COUNT(*) as requests,
-      SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
-      SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as failure_count
-    FROM requests
-    WHERE created_at >= ?
-    GROUP BY strftime('${dateFormat}', created_at)
-    ORDER BY timestamp ASC
-  `).all(since) as any[];
+  const rows = await db.all<any>(sql, [since]);
 
   res.json(rows.map(r => ({
     timestamp: r.timestamp,
@@ -150,13 +166,13 @@ analyticsRouter.get('/timeline', (req: Request, res: Response) => {
 });
 
 // Error distribution (grouped by error type and platform)
-analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
+analyticsRouter.get('/error-distribution', async (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
 
   // Group errors by category (extract the key part of the error message)
-  const rows = db.prepare(`
+  const rows = await db.all<any>(`
     SELECT
       platform,
       model_id,
@@ -175,10 +191,10 @@ analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
     WHERE status = 'error' AND created_at >= ?
     GROUP BY platform, error_category
     ORDER BY count DESC
-  `).all(since) as any[];
+  `, [since]) as any[];
 
   // Also get totals by category
-  const byCategory = db.prepare(`
+  const byCategory = await db.all<any>(`
     SELECT
       CASE
         WHEN error LIKE '%429%' OR error LIKE '%rate limit%' OR error LIKE '%too many%' OR error LIKE '%quota%' THEN 'Rate Limited (429)'
@@ -195,16 +211,16 @@ analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
     WHERE status = 'error' AND created_at >= ?
     GROUP BY category
     ORDER BY count DESC
-  `).all(since) as any[];
+  `, [since]) as any[];
 
   // Errors by platform
-  const byPlatform = db.prepare(`
+  const byPlatform = await db.all<any>(`
     SELECT platform, COUNT(*) as count
     FROM requests
     WHERE status = 'error' AND created_at >= ?
     GROUP BY platform
     ORDER BY count DESC
-  `).all(since) as any[];
+  `, [since]) as any[];
 
   res.json({
     byCategory,
@@ -214,18 +230,18 @@ analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
 });
 
 // Recent errors
-analyticsRouter.get('/errors', (req: Request, res: Response) => {
+analyticsRouter.get('/errors', async (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
 
-  const rows = db.prepare(`
+  const rows = await db.all<any>(`
     SELECT id, platform, model_id, error, latency_ms, created_at
     FROM requests
     WHERE status = 'error' AND created_at >= ?
     ORDER BY created_at DESC
     LIMIT 50
-  `).all(since) as any[];
+  `, [since]) as any[];
 
   res.json(rows.map(r => ({
     id: r.id,
