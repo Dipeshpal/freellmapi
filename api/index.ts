@@ -17,14 +17,21 @@ async function initialize() {
       await dbModule.initDb();
       console.log('[API] Database initialized');
     } catch (dbError) {
-      console.warn('[API] Database init warning (will attempt recovery):', dbError);
+      console.warn('[API] Database init warning:', dbError);
     }
 
     console.log('[API] Creating app...');
     appInstance = appModule.createApp();
-    console.log('[API] App initialized');
+
+    if (!appInstance) {
+      throw new Error('createApp() returned null or undefined');
+    }
+
+    console.log('[API] App instance created successfully:', typeof appInstance);
   } catch (error) {
     console.error('[API] Init error:', error);
+    initialized = false;
+    appInstance = null;
     throw error;
   }
 }
