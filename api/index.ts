@@ -1,7 +1,4 @@
-import { createRequire } from 'module';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-
-const require = createRequire(import.meta.url);
 
 let appInstance: any = null;
 let initialized = false;
@@ -12,7 +9,7 @@ async function initialize() {
 
   try {
     console.log('[API] Loading modules...');
-    const appModule = require('../server/dist/app.js');
+    const appModule = await import('../server/dist/app.js');
 
     console.log('[API] Creating app (database will init on first use)...');
     appInstance = appModule.createApp();
