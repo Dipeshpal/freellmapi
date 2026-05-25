@@ -11,42 +11,25 @@ async function initialize() {
   initialized = true;
 
   try {
-    console.log('[API] Starting initialization...');
+    console.log('[API] Loading modules...');
     const appModule = require('../server/dist/app.js');
-    const dbModule = require('../server/dist/db/index.js');
-    const healthModule = require('../server/dist/services/health.js');
 
-    const { initDb } = dbModule;
-    const { createApp } = appModule;
-    const { startHealthChecker } = healthModule;
-
-    console.log('[API] Initializing database (in-memory mode)...');
-    try {
-      await initDb(':memory:');
-      console.log('[API] Database initialized');
-    } catch (dbError) {
-      console.warn('[API] Database init failed, continuing without db:', dbError);
-    }
-
-    console.log('[API] Creating app...');
-    appInstance = createApp();
-    console.log('[API] App created');
-
-    console.log('[API] Starting health checker...');
-    try {
-      startHealthChecker();
-    } catch (healthError) {
-      console.warn('[API] Health checker failed, continuing:', healthError);
-    }
-    console.log('[API] Initialization complete');
+    console.log('[API] Creating app (database will init on first use)...');
+    appInstance = appModule.createApp();
+    console.log('[API] App initialized');
   } catch (error) {
-    console.error('[API] Critical init error:', error);
+    console.error('[API] Init error:', error);
     throw error;
   }
 }
 
 export default async (req: VercelRequest, res: VercelResponse) => {
   try {
+    // Health check - don't require full init
+    if (req.url === '/api/health' || req.url === '/_health') {
+      return res.status(200).json({ ok: true });
+    }
+
     await initialize();
     if (!appInstance) {
       return res.status(503).json({ error: { message: 'Server not ready' } });
