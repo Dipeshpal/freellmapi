@@ -1,0 +1,13 @@
+.git
+.env.example
+.github
+CLAUDE.md
+README.md
+*.test.ts
+*.test.js
+**/__tests__
+**/*.test.js
+server/src
+server/dist
+server/__tests__
+shared/__tests__
