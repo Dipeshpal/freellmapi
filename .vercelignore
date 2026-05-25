@@ -8,6 +8,5 @@ README.md
 **/__tests__
 **/*.test.js
 server/src
-server/dist
 server/__tests__
 shared/__tests__
