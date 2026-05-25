@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { keysRouter } from './routes/keys.js';
@@ -10,7 +11,9 @@ import { fallbackRouter } from './routes/fallback.js';
 import { analyticsRouter } from './routes/analytics.js';
 import { healthRouter } from './routes/health.js';
 import { settingsRouter } from './routes/settings.js';
+import { authRouter } from './routes/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { requireAuth } from './middleware/requireAuth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -46,22 +49,26 @@ export function createApp() {
     },
   }));
   app.use(express.json({ limit: '1mb' }));
+  app.use(cookieParser());
 
-  // API routes
-  app.use('/api/keys', keysRouter);
-  app.use('/api/models', modelsRouter);
-  app.use('/api/fallback', fallbackRouter);
-  app.use('/api/analytics', analyticsRouter);
-  app.use('/api/health', healthRouter);
-  app.use('/api/settings', settingsRouter);
+  // Public auth routes (no requireAuth)
+  app.use('/api/auth', authRouter);
 
-  // OpenAI-compatible proxy
-  app.use('/v1', proxyRouter);
-
-  // Health check
+  // Health check (public)
   app.get('/api/ping', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
+
+  // Protected API routes
+  app.use('/api/keys', requireAuth, keysRouter);
+  app.use('/api/models', requireAuth, modelsRouter);
+  app.use('/api/fallback', requireAuth, fallbackRouter);
+  app.use('/api/analytics', requireAuth, analyticsRouter);
+  app.use('/api/health', requireAuth, healthRouter);
+  app.use('/api/settings', requireAuth, settingsRouter);
+
+  // OpenAI-compatible proxy (has its own Bearer token check)
+  app.use('/v1', proxyRouter);
 
   // Error handler (for API routes)
   app.use(errorHandler);
