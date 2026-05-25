@@ -10,8 +10,17 @@ async function initialize() {
   try {
     console.log('[API] Loading modules...');
     const appModule = await import('../server/dist/app.js');
+    const dbModule = await import('../server/dist/db/index.js');
 
-    console.log('[API] Creating app (database will init on first use)...');
+    console.log('[API] Initializing database...');
+    try {
+      await dbModule.initDb();
+      console.log('[API] Database initialized');
+    } catch (dbError) {
+      console.warn('[API] Database init warning (will attempt recovery):', dbError);
+    }
+
+    console.log('[API] Creating app...');
     appInstance = appModule.createApp();
     console.log('[API] App initialized');
   } catch (error) {
