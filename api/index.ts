@@ -45,16 +45,24 @@ export default async (req: VercelRequest, res: VercelResponse) => {
 
     await initialize();
     if (!appInstance) {
-      return res.status(503).json({ error: { message: 'Server not ready' } });
+      console.error('[API] App instance is null after initialize()');
+      return res.status(503).json({
+        error: {
+          message: 'Server initialization incomplete',
+          debug: 'appInstance is null'
+        }
+      });
     }
     appInstance(req, res);
   } catch (error) {
-    console.error('[API] Error:', error);
+    console.error('[API] Handler error:', error);
     const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : '';
     res.status(500).json({
       error: {
         message: 'Server error',
         details: message,
+        stack: stack.split('\n').slice(0, 3),
       },
     });
   }
