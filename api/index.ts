@@ -31,11 +31,11 @@ export default async (req: VercelRequest, res: VercelResponse) => {
     if (!appInstance) {
       return res.status(503).json({ error: { message: 'Server not ready' } });
     }
-    return appInstance(req, res);
+    appInstance(req, res);
   } catch (error) {
     console.error('[API] Error:', error);
     const message = error instanceof Error ? error.message : String(error);
-    return res.status(500).json({
+    res.status(500).json({
       error: {
         message: 'Server error',
         details: message,
