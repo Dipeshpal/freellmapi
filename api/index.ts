@@ -20,19 +20,27 @@ async function initialize() {
     const { createApp } = appModule;
     const { startHealthChecker } = healthModule;
 
-    console.log('[API] Initializing database...');
-    await initDb();
-    console.log('[API] Database initialized');
+    console.log('[API] Initializing database (in-memory mode)...');
+    try {
+      await initDb(':memory:');
+      console.log('[API] Database initialized');
+    } catch (dbError) {
+      console.warn('[API] Database init failed, continuing without db:', dbError);
+    }
 
     console.log('[API] Creating app...');
     appInstance = createApp();
     console.log('[API] App created');
 
     console.log('[API] Starting health checker...');
-    startHealthChecker();
+    try {
+      startHealthChecker();
+    } catch (healthError) {
+      console.warn('[API] Health checker failed, continuing:', healthError);
+    }
     console.log('[API] Initialization complete');
   } catch (error) {
-    console.error('[API] Init error:', error);
+    console.error('[API] Critical init error:', error);
     throw error;
   }
 }
