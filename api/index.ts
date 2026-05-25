@@ -12,6 +12,9 @@ async function initialize() {
     const appModule = await import('../server/dist/app.js');
     const dbModule = await import('../server/dist/db/index.js');
 
+    console.log('[API] App module exports:', Object.keys(appModule));
+    console.log('[API] DB module exports:', Object.keys(dbModule));
+
     console.log('[API] Initializing database...');
     try {
       await dbModule.initDb();
@@ -21,13 +24,22 @@ async function initialize() {
     }
 
     console.log('[API] Creating app...');
+
+    if (typeof appModule.createApp !== 'function') {
+      throw new Error(`createApp is not a function. Type: ${typeof appModule.createApp}`);
+    }
+
     appInstance = appModule.createApp();
 
     if (!appInstance) {
       throw new Error('createApp() returned null or undefined');
     }
 
-    console.log('[API] App instance created successfully:', typeof appInstance);
+    if (typeof appInstance !== 'function') {
+      throw new Error(`App is not a function. Type: ${typeof appInstance}`);
+    }
+
+    console.log('[API] App instance created successfully');
   } catch (error) {
     console.error('[API] Init error:', error);
     initialized = false;
