@@ -1,12 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 let appInstance: any = null;
-let initialized = false;
+let initPromise: Promise<void> | null = null;
 
-async function initialize() {
-  if (initialized) return;
-  initialized = true;
-
+async function doInitialize() {
   try {
     console.log('[API] Loading modules...');
     const appModule = await import('../server/dist/app.js');
@@ -42,10 +39,16 @@ async function initialize() {
     console.log('[API] App instance created successfully');
   } catch (error) {
     console.error('[API] Init error:', error);
-    initialized = false;
+    initPromise = null;
     appInstance = null;
     throw error;
   }
+}
+
+async function initialize() {
+  if (initPromise) return initPromise;
+  initPromise = doInitialize();
+  return initPromise;
 }
 
 export default async (req: VercelRequest, res: VercelResponse) => {
