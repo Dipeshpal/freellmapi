@@ -5,7 +5,6 @@ const require = createRequire(import.meta.url);
 
 let appInstance: any = null;
 let initialized = false;
-let initError: Error | null = null;
 
 async function initialize() {
   if (initialized) return;
@@ -16,8 +15,6 @@ async function initialize() {
     const appModule = require('../server/dist/app.js');
     const dbModule = require('../server/dist/db/index.js');
     const healthModule = require('../server/dist/services/health.js');
-
-    console.log('[API] Modules loaded');
 
     const { initDb } = dbModule;
     const { createApp } = appModule;
@@ -36,7 +33,6 @@ async function initialize() {
     console.log('[API] Initialization complete');
   } catch (error) {
     console.error('[API] Init error:', error);
-    initError = error as Error;
     throw error;
   }
 }
@@ -45,15 +41,16 @@ export default async (req: VercelRequest, res: VercelResponse) => {
   try {
     await initialize();
     if (!appInstance) {
-      throw new Error('App instance not initialized');
+      return res.status(503).json({ error: { message: 'Server not ready' } });
     }
     return appInstance(req, res);
   } catch (error) {
-    console.error('[API] Request error:', error);
-    res.status(500).json({
+    console.error('[API] Error:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({
       error: {
-        message: 'Server initialization failed',
-        details: error instanceof Error ? error.message : String(error),
+        message: 'Server error',
+        details: message,
       },
     });
   }
